@@ -5,10 +5,10 @@ import streamlit as st
 # Apheresis system parameters for lymphodepletion
 LYMPHODEPLETION_SETTINGS = {
     'Spectra Optia': {
-        'interface_range': (0.3, 1.5),  # Lower interface for aggressive depletion
-        'flow_range': (40, 60),         # Reduced flow for better separation
-        'plasma_removal_range': (15, 30), # Higher plasma removal
-        'acd_ratio_range': (11, 14)     # More anticoagulant for long runs
+        'interface_range': (0.3, 1.5),
+        'flow_range': (40, 60),
+        'plasma_removal_range': (15, 30),
+        'acd_ratio_range': (11, 14)
     },
     'Haemonetics': {
         'interface_range': (0.3, 1.5),
@@ -45,12 +45,12 @@ def calculate_lymphodepletion(tlc, lymph_percent, system, lamp_power, target_dos
                           (BAG_TYPES[bag_type]['absorption'] + BAG_TYPES[bag_type]['scattering'])) * 
                          BAG_TYPES[bag_type]['thickness'])
     distance = 20 if use_hood else 15
-    effective_intensity = (lamp_power * 1000 * 0.85 * transmission) / (4 * np.pi * distance**2)
+    intensity = (lamp_power * 1000 * 0.85 * transmission) / (4 * np.pi * distance**2)
     
     # 4. Dose adjustment
     shielding = (0.015 * mnc_conc) + (0.03 * rbc_contam)
     effective_dose = target_dose * transmission * max(1 - shielding, 0.3) * depletion_factor
-    exp_time = (effective_dose / (effective_intensity / 1000)) / 60
+    exp_time = (effective_dose / (intensity / 1000)) / 60
     
     # Calculate predicted outcomes
     lymph_viability = 100*np.exp(-1.5*effective_dose)
@@ -63,6 +63,7 @@ def calculate_lymphodepletion(tlc, lymph_percent, system, lamp_power, target_dos
         'effective_dose': effective_dose,
         'exp_time': exp_time,
         'transmission': transmission,
+        'intensity': intensity,  # This was missing in original
         'lymph_viability': lymph_viability,
         'cd34_viability': cd34_viability,
         'params': params
@@ -138,7 +139,7 @@ def main():
     
     # Time-response plot
     times = np.linspace(0, max(results['exp_time']*2, 90), 100)
-    time_doses = (results['effective_intensity']/1000) * (times * 60)
+    time_doses = (results['intensity']/1000) * (times * 60)  # Fixed: using 'intensity' instead of 'effective_intensity'
     ax2.plot(times, 100*np.exp(-1.5*time_doses*results['depletion_factor']), 'r-', label='Lymphocytes')
     ax2.plot(times, 100*np.exp(-0.25*time_doses), 'b-', label='CD34+')
     ax2.axvline(results['exp_time'], color='k', linestyle='--', label='Estimated Time')
