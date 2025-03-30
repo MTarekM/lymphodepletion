@@ -84,7 +84,7 @@ def main():
     
     # Input parameters in sidebar
     with st.sidebar:
-        st.header("Patient Parameters")
+        st.header("Donor CBC Parameters")
         col1, col2 = st.columns(2)
         with col1:
             tlc = st.slider("TLC (×10³/µL)", 5.0, 50.0, 10.0, 0.5)
@@ -92,7 +92,7 @@ def main():
             lymph_percent = st.slider("Lymphocyte %", 10, 90, 40)
         
         # Added hematocrit input field
-        hct = st.slider("Patient Hematocrit (%)", 20.0, 60.0, 40.0, 0.1,
+        hct = st.slider("Donor's Hematocrit (%)", 20.0, 60.0, 40.0, 0.1,
                        help="Critical for apheresis efficiency and RBC contamination")
         
         st.header("System Configuration")
