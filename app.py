@@ -2,19 +2,19 @@ import numpy as np
 import matplotlib.pyplot as plt
 import streamlit as st
 
-# Apheresis system parameters
-APHERESIS_SETTINGS = {
+# Apheresis system parameters for lymphodepletion
+LYMPHODEPLETION_SETTINGS = {
     'Spectra Optia': {
-        'interface_range': (0.5, 2.0),
-        'flow_range': (40, 70),
-        'plasma_removal_range': (5, 25),  # %
-        'acd_ratio_range': (12, 16)       # 1:12 to 1:16
+        'interface_range': (0.3, 1.5),  # Lower interface for aggressive depletion
+        'flow_range': (40, 60),         # Reduced flow for better separation
+        'plasma_removal_range': (15, 30), # Higher plasma removal
+        'acd_ratio_range': (11, 14)     # More anticoagulant for long runs
     },
     'Haemonetics': {
-        'interface_range': (0.5, 2.0),
-        'flow_range': (40, 65),
-        'plasma_removal_range': (5, 20),
-        'acd_ratio_range': (12, 15)
+        'interface_range': (0.3, 1.5),
+        'flow_range': (35, 55),
+        'plasma_removal_range': (10, 25),
+        'acd_ratio_range': (10, 13)
     }
 }
 
@@ -24,119 +24,125 @@ BAG_TYPES = {
     'Haemonetics (PVC)': {'absorption': 1.3, 'scattering': 7.0, 'thickness': 0.25}
 }
 
-def calculate_ecp_uvc(tlc, lymph_percent, system, lamp_power, target_dose, 
-                     use_hood, bag_type, interface_pos, flow_rate, 
-                     plasma_removal, acd_ratio):
-    """Enhanced ECP UV-C calculator with apheresis parameters"""
+def calculate_lymphodepletion(tlc, lymph_percent, system, lamp_power, target_dose, 
+                            use_hood, bag_type, interface_pos, flow_rate, 
+                            plasma_removal, acd_ratio):
+    """Enhanced lymphodepletion calculator with apheresis integration"""
     
-    # 1. Calculate apheresis performance factors
-    params = APHERESIS_SETTINGS[system]
-    interface_factor = 1 - (interface_pos - params['interface_range'][0]) / (params['interface_range'][1] - params['interface_range'][0])
+    params = LYMPHODEPLETION_SETTINGS[system]
+    
+    # 1. Apheresis performance factors
+    interface_factor = 1.5 - (interface_pos / params['interface_range'][1])
     flow_factor = flow_rate / params['flow_range'][1]
-    purity_factor = 0.7 + (interface_pos * 0.15)  # Higher interface → more T-cells
+    depletion_factor = 1.8 - (interface_pos * 0.5)
     
-    # 2. Estimate product composition
-    mnc_conc = (tlc * (lymph_percent/100) * 1.2 * 4 * flow_factor * interface_factor)
-    rbc_contam = np.mean([2.0, 5.0]) * (1 - plasma_removal/20)  # Higher plasma removal → less RBC
+    # 2. Product composition estimation
+    mnc_conc = (tlc * (lymph_percent/100) * 1.3 * 6 * flow_factor * interface_factor)
+    rbc_contam = np.mean([3.0, 6.0]) * (1 - plasma_removal/25)
     
     # 3. UV-C delivery calculations
     transmission = np.exp(-np.sqrt(3 * BAG_TYPES[bag_type]['absorption'] * 
-                                  (BAG_TYPES[bag_type]['absorption'] + BAG_TYPES[bag_type]['scattering'])) * 
+                          (BAG_TYPES[bag_type]['absorption'] + BAG_TYPES[bag_type]['scattering'])) * 
                          BAG_TYPES[bag_type]['thickness'])
     distance = 20 if use_hood else 15
     effective_intensity = (lamp_power * 1000 * 0.85 * transmission) / (4 * np.pi * distance**2)
     
-    # 4. Dose adjustment with apheresis factors
-    shielding = (0.01 * mnc_conc) + (0.02 * rbc_contam)
-    effective_dose = target_dose * transmission * max(1 - shielding, 0.5)
+    # 4. Dose adjustment
+    shielding = (0.015 * mnc_conc) + (0.03 * rbc_contam)
+    effective_dose = target_dose * transmission * max(1 - shielding, 0.3) * depletion_factor
     exp_time = (effective_dose / (effective_intensity / 1000)) / 60
+    
+    # Calculate predicted outcomes
+    lymph_viability = 100*np.exp(-1.5*effective_dose)
+    cd34_viability = 100*np.exp(-0.25*effective_dose)
     
     return {
         'mnc_conc': mnc_conc,
         'rbc_contam': rbc_contam,
-        'purity_factor': purity_factor,
+        'depletion_factor': depletion_factor,
         'effective_dose': effective_dose,
         'exp_time': exp_time,
         'transmission': transmission,
-        'effective_intensity': effective_intensity,
+        'lymph_viability': lymph_viability,
+        'cd34_viability': cd34_viability,
         'params': params
     }
 
 def main():
-    st.set_page_config(page_title="ECP UV-C Calculator", layout="wide")
-    st.title("Extracorporeal Photopheresis (ECP) UV-C Calculator")
+    st.set_page_config(page_title="Lymphodepletion Calculator", layout="wide")
+    st.title("Advanced Lymphodepletion Calculator")
     
     # Input parameters in sidebar
     with st.sidebar:
         st.header("Patient Parameters")
-        tlc = st.slider("Total Lymphocyte Count (×10³/µL)", 1.0, 50.0, 8.0, 0.5)
-        lymph_percent = st.slider("Lymphocyte Percentage (%)", 5, 90, 30)
+        tlc = st.slider("TLC (×10³/µL)", 5.0, 50.0, 10.0, 0.5)
+        lymph_percent = st.slider("Lymphocyte %", 10, 90, 40)
         
         st.header("System Configuration")
-        system = st.selectbox("Apheresis System", list(APHERESIS_SETTINGS.keys()))
-        bag_type = st.selectbox("Bag Type", list(BAG_TYPES.keys()))
+        system = st.selectbox("Apheresis System", list(LYMPHODEPLETION_SETTINGS.keys()))
+        bag_type = st.selectbox("UV-C Bag Type", list(BAG_TYPES.keys()))
         
         st.header("Treatment Parameters")
-        lamp_power = st.slider("UV-C Lamp Power (W)", 5, 30, 15)
-        target_dose = st.slider("Target Dose (J/cm²)", 0.0, 6.0, 1.0, 0.1)
+        lamp_power = st.slider("UV-C Lamp Power (W)", 5, 50, 25)
+        target_dose = st.slider("Target Dose (J/cm²)", 0.0, 6.0, 2.5, 0.1)
         use_hood = st.checkbox("Use Laminar Hood", value=True)
         
         st.header("Apheresis Settings")
         interface_pos = st.slider("Interface Position", 
-                                APHERESIS_SETTINGS[system]['interface_range'][0], 
-                                APHERESIS_SETTINGS[system]['interface_range'][1], 
-                                1.0, 0.1)
+                                LYMPHODEPLETION_SETTINGS[system]['interface_range'][0], 
+                                LYMPHODEPLETION_SETTINGS[system]['interface_range'][1], 
+                                0.8, 0.1)
         flow_rate = st.slider("Flow Rate (mL/min)", 
-                             APHERESIS_SETTINGS[system]['flow_range'][0], 
-                             APHERESIS_SETTINGS[system]['flow_range'][1], 50)
+                            LYMPHODEPLETION_SETTINGS[system]['flow_range'][0], 
+                            LYMPHODEPLETION_SETTINGS[system]['flow_range'][1], 45)
         plasma_removal = st.slider("Plasma Removal (%)", 
-                                  APHERESIS_SETTINGS[system]['plasma_removal_range'][0], 
-                                  APHERESIS_SETTINGS[system]['plasma_removal_range'][1], 15)
+                                 LYMPHODEPLETION_SETTINGS[system]['plasma_removal_range'][0], 
+                                 LYMPHODEPLETION_SETTINGS[system]['plasma_removal_range'][1], 20)
         acd_ratio = st.slider("ACD Ratio (1:X)", 
-                             APHERESIS_SETTINGS[system]['acd_ratio_range'][0], 
-                             APHERESIS_SETTINGS[system]['acd_ratio_range'][1], 13)
+                            LYMPHODEPLETION_SETTINGS[system]['acd_ratio_range'][0], 
+                            LYMPHODEPLETION_SETTINGS[system]['acd_ratio_range'][1], 12)
     
     # Calculate results
-    results = calculate_ecp_uvc(tlc, lymph_percent, system, lamp_power, target_dose, 
-                               use_hood, bag_type, interface_pos, flow_rate, 
-                               plasma_removal, acd_ratio)
+    results = calculate_lymphodepletion(tlc, lymph_percent, system, lamp_power, target_dose,
+                                      use_hood, bag_type, interface_pos, flow_rate,
+                                      plasma_removal, acd_ratio)
     
     # Display results
     st.subheader("Treatment Summary")
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.metric("Estimated MNC Concentration", f"{results['mnc_conc']:.1f} ×10⁶/mL")
+        st.metric("MNC Concentration", f"{results['mnc_conc']:.1f} ×10⁶/mL")
         st.metric("RBC Contamination", f"{results['rbc_contam']:.1f} ×10⁹")
     with col2:
         st.metric("Effective UV-C Dose", f"{results['effective_dose']:.2f} J/cm²")
-        st.metric("UV Transmission", f"{results['transmission']*100:.1f}%")
+        st.metric("Treatment Time", f"{results['exp_time']:.1f} minutes")
     with col3:
-        st.metric("Estimated Treatment Time", f"{results['exp_time']:.1f} minutes")
-        st.metric("T-cell Purity Factor", f"{results['purity_factor']:.2f}")
+        st.metric("Lymphocyte Viability", f"{results['lymph_viability']:.1f}%")
+        st.metric("CD34+ Viability", f"{results['cd34_viability']:.1f}%")
     
     # Create plots
-    st.subheader("Dose-Response Analysis")
+    st.subheader("Response Analysis")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     
     # Dose-response plot
-    doses = np.linspace(0, 2.5, 100)
-    ax1.plot(doses, 100*np.exp(-1.0*doses*results['transmission']*results['purity_factor']), 'r-', label='T-cells')
-    ax1.plot(doses, 100*np.exp(-0.25*doses*results['transmission']), 'b-', label='Monocytes')
+    doses = np.linspace(0, 5, 100)
+    ax1.plot(doses, 100*np.exp(-1.5*doses*results['transmission']*results['depletion_factor']), 'r-', label='Lymphocytes')
+    ax1.plot(doses, 100*np.exp(-0.25*doses*results['transmission']), 'b-', label='CD34+')
     ax1.axvline(results['effective_dose'], color='k', linestyle='--', label='Selected Dose')
-    ax1.set_title('Cell Viability vs. UV-C Dose')
+    ax1.set_title('Dose-Response Curve')
     ax1.set_xlabel('UV-C Dose (J/cm²)')
     ax1.set_ylabel('Viability (%)')
     ax1.legend()
     ax1.grid(alpha=0.3)
     
     # Time-response plot
-    times = np.linspace(0, max(results['exp_time']*2, 40), 100)
+    times = np.linspace(0, max(results['exp_time']*2, 90), 100)
     time_doses = (results['effective_intensity']/1000) * (times * 60)
-    ax2.plot(times, 100*np.exp(-1.0*time_doses*results['purity_factor']), 'r-', label='T-cells')
-    ax2.plot(times, 100*np.exp(-0.25*time_doses), 'b-', label='Monocytes')
+    ax2.plot(times, 100*np.exp(-1.5*time_doses*results['depletion_factor']), 'r-', label='Lymphocytes')
+    ax2.plot(times, 100*np.exp(-0.25*time_doses), 'b-', label='CD34+')
     ax2.axvline(results['exp_time'], color='k', linestyle='--', label='Estimated Time')
-    ax2.set_title('Cell Viability vs. Treatment Time')
+    ax2.set_title('Time-Response Curve')
     ax2.set_xlabel('Time (minutes)')
     ax2.legend()
     ax2.grid(alpha=0.3)
@@ -144,20 +150,21 @@ def main():
     st.pyplot(fig)
     
     # Clinical guidance
-    st.subheader("Clinical Recommendations")
-    st.markdown("""
-    - **For increased T-cell depletion**: Lower interface position (closer to {:.1f})
-    - **For faster processing**: Higher flow rate (up to {} mL/min)
-    - **To reduce RBC contamination**: Increase plasma removal (up to {}%)
-    - **Treatment adjustment**: 
-        - Current estimated time: {:.1f} minutes
-        - Consider adjusting lamp power or target dose if needed
-    """.format(
-        APHERESIS_SETTINGS[system]['interface_range'][0],
-        APHERESIS_SETTINGS[system]['flow_range'][1],
-        APHERESIS_SETTINGS[system]['plasma_removal_range'][1],
-        results['exp_time']
-    ))
+    st.subheader("Clinical Protocol")
+    st.markdown(f"""
+    ### {system} Lymphodepletion Protocol
+    **Apheresis Settings:**
+    - Interface Position: {interface_pos} (Range: {results['params']['interface_range'][0]}-{results['params']['interface_range'][1]})
+    - Flow Rate: {flow_rate} mL/min (Range: {results['params']['flow_range'][0]}-{results['params']['flow_range'][1]})
+    - Plasma Removal: {plasma_removal}% (Range: {results['params']['plasma_removal_range'][0]}-{results['params']['plasma_removal_range'][1]})
+    - ACD Ratio: 1:{acd_ratio} (Range: 1:{results['params']['acd_ratio_range'][0]}-1:{results['params']['acd_ratio_range'][1]})
+    
+    **Optimization Guidance:**
+    - For **aggressive depletion**: Lower interface position (<0.8)
+    - For **CD34+ preservation**: Maintain interface >1.0
+    - For **RBC reduction**: Increase plasma removal (>20%)
+    - For **stable product**: Use flow rate 40-50 mL/min
+    """)
 
 if __name__ == "__main__":
     main()
