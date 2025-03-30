@@ -18,7 +18,7 @@ LYMPHODEPLETION_SETTINGS = {
         'plasma_removal_range': (10, 25),
         'acd_ratio_range': (10, 13),
         'hct_impact': 0.7,  # 70% hematocrit sensitivity
-        'rbc_base_contam': 6.0  # Higher base contamination
+        'rbc_base_contam': 6.0  # Higher base contamination for Haemonetics
     }
 }
 
@@ -45,6 +45,7 @@ def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, targe
     
     # 3. Product composition estimation with Hct-adjusted RBC contamination
     mnc_conc = (tlc * (lymph_percent/100) * 1.3 * 6 * flow_factor * interface_factor)
+    # Higher RBC contamination for Haemonetics as per base values
     rbc_contam = params['rbc_base_contam'] * (hct/40) * (1 - plasma_removal/25)
     
     # 4. UV-C delivery calculations
@@ -90,8 +91,8 @@ def main():
         with col2:
             lymph_percent = st.slider("Lymphocyte %", 10, 90, 40)
         
-        # Add hematocrit input
-        hct = st.slider("Hematocrit (%)", 20.0, 60.0, 40.0, 0.1,
+        # Added hematocrit input field
+        hct = st.slider("Patient Hematocrit (%)", 20.0, 60.0, 40.0, 0.1,
                        help="Critical for apheresis efficiency and RBC contamination")
         
         st.header("System Configuration")
@@ -152,7 +153,7 @@ def main():
     <div style="background-color:#f0f2f6;padding:10px;border-radius:5px;margin-bottom:20px">
         <h4 style="color:{eff_color}">System Efficiency: {results['hct_efficiency']:.2f} (1.0 = ideal at 40% Hct)</h4>
         <p>Hematocrit impact: <b>{LYMPHODEPLETION_SETTINGS[system]['hct_impact']*100:.0f}%</b> sensitivity | 
-        RBC contamination base: <b>{LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹</b></p>
+        RBC contamination base: <b>{LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹</b> ({'higher' if system == 'Haemonetics' else 'lower'} for this system)</p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -207,15 +208,18 @@ def main():
     - Plasma Removal: {plasma_removal}% (Range: {results['params']['plasma_removal_range'][0]}-{results['params']['plasma_removal_range'][1]})
     - ACD Ratio: 1:{acd_ratio} (Range: 1:{results['params']['acd_ratio_range'][0]}-1:{results['params']['acd_ratio_range'][1]})
     
-    **Hematocrit-Specific Guidance:**
-    - System efficiency at current Hct: {results['hct_efficiency']:.2f} (1.0 = ideal at 40% Hct)
-    - RBC contamination vs baseline: {(results['rbc_contam']/LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']-1)*100:.0f}%
+    **System-Specific Notes:**
+    - RBC contamination baseline: {LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹ ({'higher' if system == 'Haemonetics' else 'lower'} than alternative systems)
+    - Hematocrit sensitivity: {LYMPHODEPLETION_SETTINGS[system]['hct_impact']*100:.0f}% ({'more' if system == 'Haemonetics' else 'less'} sensitive to Hct changes)
     
     **Optimization Guidance:**
+    - For **high Hct (>45%)**: 
+      • Reduce flow rate by 10-20% 
+      • Increase plasma removal by 5-10%
+      • Use lower interface position (0.6-0.8)
+      • Consider higher ACD ratio (1:{min(acd_ratio+1, results['params']['acd_ratio_range'][1])})
     - For **aggressive depletion**: Lower interface position (<0.8) and increase plasma removal
     - For **CD34+ preservation**: Maintain interface >1.0 and reduce flow rate
-    - For **high Hct (>45%)**: Reduce flow rate by 10-20% and increase ACD ratio
-    - For **stable product**: Use flow rate 40-50 mL/min and standard interface
     """)
 
 if __name__ == "__main__":
