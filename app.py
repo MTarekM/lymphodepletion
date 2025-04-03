@@ -26,6 +26,12 @@ BAG_TYPES = {
     'Haemonetics (PVC)': {'absorption': 1.3, 'scattering': 7.0, 'thickness': 0.25}
 }
 
+# HSC-sparing UV dose ranges
+UV_DOSE_RANGES = {
+    'UV-A': (1.0, 5.0),  # HSC-sparing range up to 5 J/cm²
+    'UV-B': (0.005, 0.4)  # HSC-sparing range 0.005-0.4 J/cm²
+}
+
 def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, target_dose, 
                             use_hood, custom_distance, bag_type, flow_rate, 
                             plasma_removal, acd_ratio):
@@ -77,8 +83,8 @@ def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, targe
     }
 
 def main():
-    st.set_page_config(page_title="UV-based Sensitizer-free Lymphodepletion Calculator", layout="wide")
-    st.title("UV-based Sensitizer-free Advanced Lymphodepletion Calculator with Hematocrit Adjustment")
+    st.set_page_config(page_title="Lymphodepletion Calculator", layout="wide")
+    st.title("HSC-Sparing Lymphodepletion Calculator")
     
     # Input parameters in sidebar
     with st.sidebar:
@@ -97,15 +103,19 @@ def main():
         bag_type = st.selectbox("UV Bag Type", list(BAG_TYPES.keys()))
         
         st.header("Treatment Parameters")
-        uv_type = st.selectbox("UV Type", ["UV-A", "UV-B", "UV-C"], index=2)
+        uv_type = st.selectbox("UV Type", ["UV-A", "UV-B"], 
+                             help="UV-C not applicable for HSC-sparing applications")
         
-        # Set dose ranges based on UV type
+        # Set HSC-sparing dose ranges based on UV type
+        dose_range = UV_DOSE_RANGES[uv_type]
         if uv_type == "UV-A":
-            target_dose = st.slider("Target Dose (J/cm²)", 5.0, 10.0, 5.0, 0.1)
-        elif uv_type == "UV-B":
-            target_dose = st.slider("Target Dose (J/cm²)", 0.5, 2.0, 1.0, 0.1)
-        else:
-            target_dose = st.slider("Target Dose (J/cm²)", 2.0, 6.0, 2.5, 0.1)
+            target_dose = st.slider("Target Dose (J/cm²)", 
+                                   dose_range[0], dose_range[1], 3.0, 0.1,
+                                   help="HSC-sparing range: 1-5 J/cm²")
+        else:  # UV-B
+            target_dose = st.slider("Target Dose (J/cm²)", 
+                                   dose_range[0], dose_range[1], 0.2, 0.005,
+                                   help="HSC-sparing range: 0.005-0.4 J/cm²")
         
         lamp_power = st.slider("UV Lamp Power (W)", 5, 50, 25)
         use_hood = st.checkbox("Use Laminar Hood (fixed 20cm distance)", value=True)
@@ -146,7 +156,7 @@ def main():
                                       plasma_removal, acd_ratio)
     
     # Display results
-    st.subheader("Treatment Summary")
+    st.subheader("HSC-Sparing Treatment Summary")
     
     # System Efficiency Panel
     eff_color = "red" if results['hct_efficiency'] < 0.85 else "green"
@@ -173,15 +183,15 @@ def main():
         st.metric("Distance", f"{results['distance']} cm")
     
     # Create plots
-    st.subheader("Response Analysis")
+    st.subheader("HSC-Sparing Response Analysis")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     
     # Dose-response plot
-    doses = np.linspace(0, target_dose*1.5, 100)
+    doses = np.linspace(0, UV_DOSE_RANGES[uv_type][1]*1.2, 100)
     ax1.plot(doses, 100*np.exp(-1.5*doses*results['transmission']*results['depletion_factor']), 'r-', label='Lymphocytes')
     ax1.plot(doses, 100*np.exp(-0.25*doses*results['transmission']), 'b-', label='CD34+')
     ax1.axvline(results['effective_dose'], color='k', linestyle='--', label='Selected Dose')
-    ax1.set_title(f'{uv_type} Dose-Response Curve')
+    ax1.set_title(f'{uv_type} Dose-Response (HSC-Sparing)')
     ax1.set_xlabel(f'{uv_type} Dose (J/cm²)')
     ax1.set_ylabel('Viability (%)')
     ax1.legend()
@@ -193,7 +203,7 @@ def main():
     ax2.plot(times, 100*np.exp(-1.5*time_doses*results['depletion_factor']), 'r-', label='Lymphocytes')
     ax2.plot(times, 100*np.exp(-0.25*time_doses), 'b-', label='CD34+')
     ax2.axvline(results['exp_time'], color='k', linestyle='--', label='Estimated Time')
-    ax2.set_title(f'{uv_type} Time-Response Curve')
+    ax2.set_title(f'{uv_type} Time-Response (HSC-Sparing)')
     ax2.set_xlabel('Time (minutes)')
     ax2.legend()
     ax2.grid(alpha=0.3)
@@ -201,26 +211,29 @@ def main():
     st.pyplot(fig)
     
     # Clinical guidance with HCT considerations
-    st.subheader("Clinical Protocol")
+    st.subheader("UV-based Sensitizer-free Advanced Lymphodepletion Calculator")
     st.markdown(f"""
-    ### {system} Lymphodepletion Protocol for Hct {hct}%
-    **Apheresis Settings:**
-    - Flow Rate: {flow_rate} mL/min (Range: {results['params']['flow_range'][0]}-{results['params']['flow_range'][1]})
-    - Plasma Removal: {plasma_removal}% (Range: {results['params']['plasma_removal_range'][0]}-{results['params']['plasma_removal_range'][1]})
-    - ACD Ratio: 1:{acd_ratio} (Range: 1:{results['params']['acd_ratio_range'][0]}-1:{results['params']['acd_ratio_range'][1]})
+    ### {system} HSC-Sparing Lymphodepletion Hct-adjusted Protocol {hct}%
     
-    **UV Parameters:**
-    - {uv_type} Dose: {results['effective_dose']:.2f} J/cm²
+    **UV Parameters ({uv_type}):**
+    - Target Dose: {target_dose:.3f} J/cm² (HSC-sparing range: {UV_DOSE_RANGES[uv_type][0]}-{UV_DOSE_RANGES[uv_type][1]} J/cm²)
+    - Effective Dose: {results['effective_dose']:.3f} J/cm²
     - Treatment Time: {results['exp_time']:.1f} minutes
     - Source Distance: {results['distance']} cm
     
-    **Optimization Guidance:**
-    - For **high Hct (>45%)**: 
-      • Reduce flow rate by 10-20% 
-      • Increase plasma removal by 5-10%
-      • Consider higher ACD ratio (1:{min(acd_ratio+1, results['params']['acd_ratio_range'][1])})
-    - For **aggressive depletion**: Increase plasma removal and UV dose
-    - For **CD34+ preservation**: Reduce flow rate and monitor dose carefully
+    **Apheresis Settings:**
+    - Flow Rate: {flow_rate} mL/min
+    - Plasma Removal: {plasma_removal}%
+    - ACD Ratio: 1:{acd_ratio}
+    
+    **Expected Outcomes:**
+    - Lymphocyte viability: {results['lymph_viability']:.1f}%
+    - CD34+ viability: {results['cd34_viability']:.1f}%
+    
+    **Clinical Notes:**
+    - UV-A (5 J/cm² max) preserves HSC function while depleting lymphocytes
+    - UV-B (0.4 J/cm² max) preserves 25% CAFC while abolishing PHA responses
+    - For high Hct (>45%): reduce flow rate by 10-20% and increase plasma removal
     """)
 
 if __name__ == "__main__":
