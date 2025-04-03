@@ -83,8 +83,8 @@ def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, targe
     }
 
 def main():
-    st.set_page_config(page_title="Lymphodepletion Calculator", layout="wide")
-    st.title("HSC-Sparing Lymphodepletion Calculator")
+    st.set_page_config(page_title="UV-based Sensitizer-free HSCs-Sparing Lymphodepletion Calculator", layout="wide")
+    st.title("UV-based Sensitizer-free HSCs-Sparing Lymphodepletion Calculator")
     
     # Input parameters in sidebar
     with st.sidebar:
@@ -156,7 +156,7 @@ def main():
                                       plasma_removal, acd_ratio)
     
     # Display results
-    st.subheader("HSC-Sparing Treatment Summary")
+    st.subheader("HSC-Sparing Lymphodepletion Protocol")
     
     # System Efficiency Panel
     eff_color = "red" if results['hct_efficiency'] < 0.85 else "green"
