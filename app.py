@@ -5,7 +5,6 @@ import streamlit as st
 # Apheresis system parameters for lymphodepletion with hematocrit factors
 LYMPHODEPLETION_SETTINGS = {
     'Spectra Optia': {
-        'interface_range': (0.3, 1.5),
         'flow_range': (40, 60),
         'plasma_removal_range': (15, 30),
         'acd_ratio_range': (11, 14),
@@ -13,7 +12,6 @@ LYMPHODEPLETION_SETTINGS = {
         'rbc_base_contam': 3.0  # Base RBC contamination (×10⁹)
     },
     'Haemonetics': {
-        'interface_range': (0.3, 1.5),
         'flow_range': (35, 55),
         'plasma_removal_range': (10, 25),
         'acd_ratio_range': (10, 13),
@@ -22,14 +20,14 @@ LYMPHODEPLETION_SETTINGS = {
     }
 }
 
-# UV-C bag parameters (254nm)
+# UV bag parameters
 BAG_TYPES = {
     'Spectra Optia (Polyethylene)': {'absorption': 0.9, 'scattering': 5.5, 'thickness': 0.20},
     'Haemonetics (PVC)': {'absorption': 1.3, 'scattering': 7.0, 'thickness': 0.25}
 }
 
 def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, target_dose, 
-                            use_hood, bag_type, interface_pos, flow_rate, 
+                            use_hood, custom_distance, bag_type, flow_rate, 
                             plasma_removal, acd_ratio):
     """Enhanced lymphodepletion calculator with hematocrit adjustment"""
     
@@ -39,20 +37,19 @@ def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, targe
     hct_efficiency = 1 - params['hct_impact'] * (hct - 40)/40
     
     # 2. Apheresis performance factors with Hct adjustment
-    interface_factor = 1.5 - (interface_pos / params['interface_range'][1]) * hct_efficiency
+    interface_factor = 1.25 * hct_efficiency  # Fixed optimal interface position
     flow_factor = flow_rate / params['flow_range'][1] * hct_efficiency
-    depletion_factor = 1.8 - (interface_pos * 0.5) * hct_efficiency
+    depletion_factor = 1.2 * hct_efficiency  # Simplified depletion factor
     
     # 3. Product composition estimation with Hct-adjusted RBC contamination
     mnc_conc = (tlc * (lymph_percent/100) * 1.3 * 6 * flow_factor * interface_factor)
-    # Higher RBC contamination for Haemonetics as per base values
     rbc_contam = params['rbc_base_contam'] * (hct/40) * (1 - plasma_removal/25)
     
-    # 4. UV-C delivery calculations
+    # 4. UV delivery calculations
     transmission = np.exp(-np.sqrt(3 * BAG_TYPES[bag_type]['absorption'] * 
                           (BAG_TYPES[bag_type]['absorption'] + BAG_TYPES[bag_type]['scattering'])) * 
                          BAG_TYPES[bag_type]['thickness'])
-    distance = 20 if use_hood else 15
+    distance = custom_distance if not use_hood else 20  # Hood uses fixed 20cm
     intensity = (lamp_power * 1000 * 0.85 * transmission) / (4 * np.pi * distance**2)
     
     # 5. Dose adjustment with Hct-impacted shielding
@@ -75,12 +72,13 @@ def calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, targe
         'lymph_viability': lymph_viability,
         'cd34_viability': cd34_viability,
         'hct_efficiency': hct_efficiency,
-        'params': params
+        'params': params,
+        'distance': distance
     }
 
 def main():
-    st.set_page_config(page_title="Lymphodepletion Calculator", layout="wide")
-    st.title("Advanced Lymphodepletion Calculator with Hematocrit Adjustment")
+    st.set_page_config(page_title="UV-based Sensitizer-free Lymphodepletion Calculator", layout="wide")
+    st.title("UV-based Sensitizer-free Advanced Lymphodepletion Calculator with Hematocrit Adjustment")
     
     # Input parameters in sidebar
     with st.sidebar:
@@ -91,31 +89,34 @@ def main():
         with col2:
             lymph_percent = st.slider("Lymphocyte %", 10, 90, 40)
         
-        # Added hematocrit input field
         hct = st.slider("Donor's Hematocrit (%)", 20.0, 60.0, 40.0, 0.1,
                        help="Critical for apheresis efficiency and RBC contamination")
         
         st.header("System Configuration")
         system = st.selectbox("Apheresis System", list(LYMPHODEPLETION_SETTINGS.keys()))
-        bag_type = st.selectbox("UV-C Bag Type", list(BAG_TYPES.keys()))
+        bag_type = st.selectbox("UV Bag Type", list(BAG_TYPES.keys()))
         
         st.header("Treatment Parameters")
-        lamp_power = st.slider("UV-C Lamp Power (W)", 5, 50, 25)
-        target_dose = st.slider("Target Dose (J/cm²)", 0.0, 6.0, 2.5, 0.1)
-        use_hood = st.checkbox("Use Laminar Hood", value=True)
+        uv_type = st.selectbox("UV Type", ["UV-A", "UV-B", "UV-C"], index=2)
+        
+        # Set dose ranges based on UV type
+        if uv_type == "UV-A":
+            target_dose = st.slider("Target Dose (J/cm²)", 5.0, 10.0, 5.0, 0.1)
+        elif uv_type == "UV-B":
+            target_dose = st.slider("Target Dose (J/cm²)", 0.5, 2.0, 1.0, 0.1)
+        else:
+            target_dose = st.slider("Target Dose (J/cm²)", 2.0, 6.0, 2.5, 0.1)
+        
+        lamp_power = st.slider("UV Lamp Power (W)", 5, 50, 25)
+        use_hood = st.checkbox("Use Laminar Hood (fixed 20cm distance)", value=True)
+        
+        if not use_hood:
+            custom_distance = st.slider("Custom Distance (cm)", 10, 50, 15, 1,
+                                       help="Distance between UV source and treatment bag")
+        else:
+            custom_distance = 20  # Default when hood is used
         
         st.header("Apheresis Settings")
-        
-        # Dynamic interface range suggestion based on Hct
-        interface_default = 0.8
-        if hct > 45:
-            st.warning(f"High Hct ({hct}%) - suggest lower interface position")
-            interface_default = 0.6 if system == 'Haemonetics' else 0.7
-            
-        interface_pos = st.slider("Interface Position", 
-                                LYMPHODEPLETION_SETTINGS[system]['interface_range'][0], 
-                                LYMPHODEPLETION_SETTINGS[system]['interface_range'][1], 
-                                interface_default, 0.1)
         
         # Flow rate adjustment guidance
         flow_default = 45
@@ -141,7 +142,7 @@ def main():
     
     # Calculate results
     results = calculate_lymphodepletion(tlc, lymph_percent, hct, system, lamp_power, target_dose,
-                                      use_hood, bag_type, interface_pos, flow_rate,
+                                      use_hood, custom_distance, bag_type, flow_rate,
                                       plasma_removal, acd_ratio)
     
     # Display results
@@ -153,7 +154,7 @@ def main():
     <div style="background-color:#f0f2f6;padding:10px;border-radius:5px;margin-bottom:20px">
         <h4 style="color:{eff_color}">System Efficiency: {results['hct_efficiency']:.2f} (1.0 = ideal at 40% Hct)</h4>
         <p>Hematocrit impact: <b>{LYMPHODEPLETION_SETTINGS[system]['hct_impact']*100:.0f}%</b> sensitivity | 
-        RBC contamination base: <b>{LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹</b> ({'higher' if system == 'Haemonetics' else 'lower'} for this system)</p>
+        RBC contamination base: <b>{LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹</b></p>
     </div>
     """, unsafe_allow_html=True)
     
@@ -164,23 +165,24 @@ def main():
                 delta=f"{(results['rbc_contam']-LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']):.1f} vs baseline",
                 delta_color="inverse")
     with col2:
-        st.metric("Effective UV-C Dose", f"{results['effective_dose']:.2f} J/cm²")
+        st.metric(f"Effective {uv_type} Dose", f"{results['effective_dose']:.2f} J/cm²")
         st.metric("Treatment Time", f"{results['exp_time']:.1f} minutes")
     with col3:
         st.metric("Lymphocyte Viability", f"{results['lymph_viability']:.1f}%")
         st.metric("CD34+ Viability", f"{results['cd34_viability']:.1f}%")
+        st.metric("Distance", f"{results['distance']} cm")
     
     # Create plots
     st.subheader("Response Analysis")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
     
     # Dose-response plot
-    doses = np.linspace(0, 5, 100)
+    doses = np.linspace(0, target_dose*1.5, 100)
     ax1.plot(doses, 100*np.exp(-1.5*doses*results['transmission']*results['depletion_factor']), 'r-', label='Lymphocytes')
     ax1.plot(doses, 100*np.exp(-0.25*doses*results['transmission']), 'b-', label='CD34+')
     ax1.axvline(results['effective_dose'], color='k', linestyle='--', label='Selected Dose')
-    ax1.set_title('Dose-Response Curve')
-    ax1.set_xlabel('UV-C Dose (J/cm²)')
+    ax1.set_title(f'{uv_type} Dose-Response Curve')
+    ax1.set_xlabel(f'{uv_type} Dose (J/cm²)')
     ax1.set_ylabel('Viability (%)')
     ax1.legend()
     ax1.grid(alpha=0.3)
@@ -191,7 +193,7 @@ def main():
     ax2.plot(times, 100*np.exp(-1.5*time_doses*results['depletion_factor']), 'r-', label='Lymphocytes')
     ax2.plot(times, 100*np.exp(-0.25*time_doses), 'b-', label='CD34+')
     ax2.axvline(results['exp_time'], color='k', linestyle='--', label='Estimated Time')
-    ax2.set_title('Time-Response Curve')
+    ax2.set_title(f'{uv_type} Time-Response Curve')
     ax2.set_xlabel('Time (minutes)')
     ax2.legend()
     ax2.grid(alpha=0.3)
@@ -203,23 +205,22 @@ def main():
     st.markdown(f"""
     ### {system} Lymphodepletion Protocol for Hct {hct}%
     **Apheresis Settings:**
-    - Interface Position: {interface_pos} (Range: {results['params']['interface_range'][0]}-{results['params']['interface_range'][1]})
     - Flow Rate: {flow_rate} mL/min (Range: {results['params']['flow_range'][0]}-{results['params']['flow_range'][1]})
     - Plasma Removal: {plasma_removal}% (Range: {results['params']['plasma_removal_range'][0]}-{results['params']['plasma_removal_range'][1]})
     - ACD Ratio: 1:{acd_ratio} (Range: 1:{results['params']['acd_ratio_range'][0]}-1:{results['params']['acd_ratio_range'][1]})
     
-    **System-Specific Notes:**
-    - RBC contamination baseline: {LYMPHODEPLETION_SETTINGS[system]['rbc_base_contam']} ×10⁹ ({'higher' if system == 'Haemonetics' else 'lower'} than alternative systems)
-    - Hematocrit sensitivity: {LYMPHODEPLETION_SETTINGS[system]['hct_impact']*100:.0f}% ({'more' if system == 'Haemonetics' else 'less'} sensitive to Hct changes)
+    **UV Parameters:**
+    - {uv_type} Dose: {results['effective_dose']:.2f} J/cm²
+    - Treatment Time: {results['exp_time']:.1f} minutes
+    - Source Distance: {results['distance']} cm
     
     **Optimization Guidance:**
     - For **high Hct (>45%)**: 
       • Reduce flow rate by 10-20% 
       • Increase plasma removal by 5-10%
-      • Use lower interface position (0.6-0.8)
       • Consider higher ACD ratio (1:{min(acd_ratio+1, results['params']['acd_ratio_range'][1])})
-    - For **aggressive depletion**: Lower interface position (<0.8) and increase plasma removal
-    - For **CD34+ preservation**: Maintain interface >1.0 and reduce flow rate
+    - For **aggressive depletion**: Increase plasma removal and UV dose
+    - For **CD34+ preservation**: Reduce flow rate and monitor dose carefully
     """)
 
 if __name__ == "__main__":
